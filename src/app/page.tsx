@@ -99,6 +99,11 @@ export default function Home() {
   const [isDetecting, setIsDetecting] = useState(false);
   const [showDetector, setShowDetector] = useState(false);
   
+  // Progress and settings state
+  const [progress, setProgress] = useState(0);
+  const [showHumanizeSettings, setShowHumanizeSettings] = useState(false);
+  const [historySearchTerm, setHistorySearchTerm] = useState('');
+  
   // Load data on mount
   useEffect(() => {
     setMounted(true);
@@ -172,6 +177,7 @@ export default function Home() {
     setIsProcessing(true);
     setError('');
     setResult('');
+    setProgress(0);
 
     try {
       const request: HumanizeRequest = {
@@ -182,9 +188,20 @@ export default function Home() {
         model,
       };
 
+      setProgress(20);
       const response = await apiClient.submitDocument(request);
       setCurrentDocId(response.id);
+      
+      setProgress(40);
+      // Start polling with progress updates
+      const progressInterval = setInterval(() => {
+        setProgress(prev => Math.min(prev + 10, 80));
+      }, 1000);
+      
       const document = await pollForDocument(response.id);
+      
+      clearInterval(progressInterval);
+      setProgress(90);
       
       setResult(document.output);
       
@@ -198,6 +215,7 @@ export default function Home() {
       const userCredits = await apiClient.getUserCredits();
       setCredits(userCredits);
       
+      setProgress(100);
       showToast('Text humanized successfully!', 'success');
     } catch (err) {
       const errorMessage = formatError(err);
@@ -205,6 +223,7 @@ export default function Home() {
       showToast(errorMessage, 'error');
     } finally {
       setIsProcessing(false);
+      setTimeout(() => setProgress(0), 1000);
     }
   };
 
@@ -263,10 +282,22 @@ export default function Home() {
 
     setIsProcessing(true);
     setError('');
+    setProgress(0);
 
     try {
+      setProgress(20);
       const response = await apiClient.rehumanizeDocument(currentDocId);
+      
+      setProgress(40);
+      // Start polling with progress updates
+      const progressInterval = setInterval(() => {
+        setProgress(prev => Math.min(prev + 10, 80));
+      }, 1000);
+      
       const document = await pollForDocument(response.id);
+      
+      clearInterval(progressInterval);
+      setProgress(90);
       
       setResult(document.output);
       setCurrentDocId(response.id);
@@ -281,6 +312,7 @@ export default function Home() {
       const userCredits = await apiClient.getUserCredits();
       setCredits(userCredits);
       
+      setProgress(100);
       showToast('Document rehumanized successfully!', 'success');
     } catch (err) {
       const errorMessage = formatError(err);
@@ -288,6 +320,7 @@ export default function Home() {
       showToast(errorMessage, 'error');
     } finally {
       setIsProcessing(false);
+      setTimeout(() => setProgress(0), 1000);
     }
   };
 
@@ -378,6 +411,50 @@ export default function Home() {
     showToast('Loaded from history', 'info');
   };
 
+  const handleExportHistory = () => {
+    const dataStr = JSON.stringify(history, null, 2);
+    const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+    const exportFileDefaultName = 'humanizer_history.json';
+    
+    const linkElement = document.createElement('a');
+    linkElement.setAttribute('href', dataUri);
+    linkElement.setAttribute('download', exportFileDefaultName);
+    linkElement.click();
+    showToast('History exported', 'success');
+  };
+
+  const handleImportHistory = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const importedHistory = JSON.parse(e.target?.result as string);
+          const updatedHistory = [...history, ...importedHistory];
+          setHistory(updatedHistory);
+          // Manually update storage since historyManager doesn't have setHistory
+          localStorage.setItem('humanizer-history', JSON.stringify(updatedHistory));
+          showToast('History imported successfully', 'success');
+        } catch (error) {
+          showToast('Failed to import history - invalid format', 'error');
+        }
+      };
+      reader.readAsText(file);
+    }
+  };
+
+  const handleDeleteHistoryItem = (id: string) => {
+    const newHistory = historyManager.remove(id);
+    setHistory(newHistory);
+    showToast('History item deleted', 'info');
+  };
+
+  const filteredHistory = history.filter(item => 
+    item.input.toLowerCase().includes(historySearchTerm.toLowerCase()) ||
+    item.purpose.toLowerCase().includes(historySearchTerm.toLowerCase()) ||
+    item.readability.toLowerCase().includes(historySearchTerm.toLowerCase())
+  );
+
 
 
   if (!mounted) {
@@ -393,7 +470,7 @@ export default function Home() {
             <div className="flex items-center space-x-2">
               <Sparkles className="h-8 w-8 text-gray-900 dark:text-white" />
               <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-                Undetectable AI
+                Hiuman
               </h1>
             </div>
             
@@ -593,12 +670,12 @@ export default function Home() {
                 
                 <Button
                   variant="outline"
-                  onClick={() => router.push('/settings')}
+                  onClick={() => setShowHumanizeSettings(true)}
                   size="lg"
                   className="sm:w-auto"
                 >
                   <Settings className="h-4 w-4 mr-2" />
-                  Settings
+                  Humanize Settings
                 </Button>
               </div>
             </motion.div>
@@ -615,6 +692,35 @@ export default function Home() {
                   <div className="flex items-center">
                     <AlertCircle className="h-5 w-5 text-red-500 mr-2" />
                     <span className="text-red-700 dark:text-red-300">{error}</span>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Progress Bar */}
+            <AnimatePresence>
+              {isProcessing && progress > 0 && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="space-y-2"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Processing...
+                    </span>
+                    <span className="text-sm text-gray-600 dark:text-gray-400">
+                      {progress}%
+                    </span>
+                  </div>
+                  <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${progress}%` }}
+                      transition={{ duration: 0.5, ease: 'easeInOut' }}
+                      className="bg-blue-500 h-2 rounded-full"
+                    />
                   </div>
                 </motion.div>
               )}
@@ -687,6 +793,110 @@ export default function Home() {
             </AnimatePresence>
           </div>
 
+          {/* Humanizing Settings Modal */}
+          <AnimatePresence>
+            {showHumanizeSettings && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+                onClick={() => setShowHumanizeSettings(false)}
+              >
+                <motion.div
+                  initial={{ scale: 0.9, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  exit={{ scale: 0.9, opacity: 0 }}
+                  className="bg-white dark:bg-gray-900 rounded-xl p-6 max-w-md w-full mx-4 space-y-6"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                      Humanizing Settings
+                    </h3>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShowHumanizeSettings(false)}
+                    >
+                      ✕
+                    </Button>
+                  </div>
+                  
+                  <div className="space-y-4">
+                                         <div>
+                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                         Readability Level
+                       </label>
+                       <Select
+                         value={readability}
+                         onChange={(e) => setReadability(e.target.value as HumanizeRequest['readability'])}
+                         options={readabilityOptions}
+                       />
+                     </div>
+                     
+                     <div>
+                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                         Content Purpose
+                       </label>
+                       <Select
+                         value={purpose}
+                         onChange={(e) => setPurpose(e.target.value as HumanizeRequest['purpose'])}
+                         options={purposeOptions}
+                       />
+                     </div>
+                     
+                     <div>
+                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                         Humanization Strength
+                       </label>
+                       <Select
+                         value={strength}
+                         onChange={(e) => setStrength(e.target.value as HumanizeRequest['strength'])}
+                         options={strengthOptions}
+                       />
+                     </div>
+                     
+                     <div>
+                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                         AI Model
+                       </label>
+                       <Select
+                         value={model}
+                         onChange={(e) => setModel(e.target.value as HumanizeRequest['model'])}
+                         options={modelOptions}
+                       />
+                     </div>
+                    
+                    <div className="flex items-center space-x-2">
+                      <Button
+                        variant="outline"
+                        onClick={() => setUseStreaming(!useStreaming)}
+                        className={useStreaming ? 'bg-blue-50 dark:bg-blue-900/20' : ''}
+                      >
+                        {useStreaming ? 'Streaming ON' : 'Streaming OFF'}
+                      </Button>
+                    </div>
+                  </div>
+                  
+                  <div className="flex justify-end space-x-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => setShowHumanizeSettings(false)}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={() => setShowHumanizeSettings(false)}
+                    >
+                      Save Settings
+                    </Button>
+                  </div>
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           {/* Sidebar */}
           <div className="space-y-6">
             {/* Credits Panel */}
@@ -743,13 +953,29 @@ export default function Home() {
                     </h3>
                     <div className="flex items-center space-x-2">
                       {history.length > 0 && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={handleClearHistory}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={handleExportHistory}
+                          >
+                            <Download className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => document.getElementById('history-import')?.click()}
+                          >
+                            <Upload className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={handleClearHistory}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </>
                       )}
                       <Button
                         variant="ghost"
@@ -761,27 +987,62 @@ export default function Home() {
                     </div>
                   </div>
                   
+                  <input
+                    type="file"
+                    id="history-import"
+                    accept=".json"
+                    onChange={handleImportHistory}
+                    className="hidden"
+                  />
+                  
+                  {history.length > 0 && (
+                    <div className="mb-4">
+                      <input
+                        type="text"
+                        placeholder="Search history..."
+                        value={historySearchTerm}
+                        onChange={(e) => setHistorySearchTerm(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                  )}
+                  
                   <div className="space-y-3 max-h-96 overflow-y-auto">
-                    {history.length === 0 ? (
+                    {filteredHistory.length === 0 ? (
                       <p className="text-gray-500 dark:text-gray-400 text-center py-8">
-                        No history yet. Start humanizing some text!
+                        {history.length === 0 ? 'No history yet. Start humanizing some text!' : 'No results found. Try a different search term.'}
                       </p>
                     ) : (
-                      history.map((item) => (
+                      filteredHistory.map((item) => (
                         <div
                           key={item.id}
-                          className="p-3 bg-white dark:bg-gray-800 rounded border hover:shadow-md transition-shadow cursor-pointer"
-                          onClick={() => handleLoadFromHistory(item)}
+                          className="p-3 bg-white dark:bg-gray-800 rounded border hover:shadow-md transition-shadow relative group"
                         >
-                          <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">
-                            {textUtils.formatRelativeTime(item.timestamp)}
+                          <div
+                            className="cursor-pointer"
+                            onClick={() => handleLoadFromHistory(item)}
+                          >
+                            <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">
+                              {textUtils.formatRelativeTime(item.timestamp)}
+                            </div>
+                            <div className="text-sm font-medium text-gray-900 dark:text-white mb-1">
+                              {item.purpose} • {item.readability}
+                            </div>
+                            <div className="text-xs text-gray-500 dark:text-gray-400">
+                              {textUtils.truncate(item.input, 100)}
+                            </div>
                           </div>
-                          <div className="text-sm font-medium text-gray-900 dark:text-white mb-1">
-                            {item.purpose} • {item.readability}
-                          </div>
-                          <div className="text-xs text-gray-500 dark:text-gray-400">
-                            {textUtils.truncate(item.input, 100)}
-                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteHistoryItem(item.id);
+                            }}
+                            className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 h-6 w-6"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
                         </div>
                       ))
                     )}
