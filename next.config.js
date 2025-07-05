@@ -2,6 +2,8 @@
 const nextConfig = {
   output: 'export',
   trailingSlash: true,
+  basePath: '/ai',
+  assetPrefix: '/ai',
   images: {
     unoptimized: true,
   },
